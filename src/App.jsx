@@ -149,19 +149,22 @@ function validateBeforeSolve(cages) {
 }
 
 function solveKillerSudoku(cages, initialValues) {
-  const cellToCage = validateBeforeSolve(cages)
+  const hasCages = cages.length > 0
+  const cellToCage = hasCages ? validateBeforeSolve(cages) : null
   const values = Array(CELL_COUNT).fill(0)
   const rows = Array(GRID_SIZE).fill(0)
   const cols = Array(GRID_SIZE).fill(0)
   const boxes = Array(GRID_SIZE).fill(0)
 
-  const cageStates = cages.map((cage) => ({
-    target: cage.sum,
-    size: cage.cells.length,
-    sum: 0,
-    usedMask: 0,
-    filled: 0,
-  }))
+  const cageStates = hasCages
+    ? cages.map((cage) => ({
+        target: cage.sum,
+        size: cage.cells.length,
+        sum: 0,
+        usedMask: 0,
+        filled: 0,
+      }))
+    : []
 
   let givenCount = 0
 
@@ -174,7 +177,7 @@ function solveKillerSudoku(cages, initialValues) {
     const { row, col } = indexToCoord(cell)
     const box = boxIndex(row, col)
     const bit = digitMask(digit)
-    const cageState = cageStates[cellToCage[cell]]
+    const cageState = hasCages ? cageStates[cellToCage[cell]] : null
 
     if ((rows[row] & bit) !== 0) {
       throw new Error(`Conflito nas pistas: o numero ${digit} repete na linha ${row + 1}.`)
@@ -185,10 +188,10 @@ function solveKillerSudoku(cages, initialValues) {
     if ((boxes[box] & bit) !== 0) {
       throw new Error('Conflito nas pistas: o numero repete no bloco 3x3.')
     }
-    if ((cageState.usedMask & bit) !== 0) {
+    if (hasCages && (cageState.usedMask & bit) !== 0) {
       throw new Error('Conflito nas pistas: numero repetido dentro de um mesmo cage.')
     }
-    if (cageState.sum + digit > cageState.target) {
+    if (hasCages && cageState.sum + digit > cageState.target) {
       throw new Error('Conflito nas pistas: a soma de um cage foi ultrapassada.')
     }
 
@@ -196,33 +199,41 @@ function solveKillerSudoku(cages, initialValues) {
     rows[row] |= bit
     cols[col] |= bit
     boxes[box] |= bit
-    cageState.sum += digit
-    cageState.usedMask |= bit
-    cageState.filled += 1
+    if (hasCages) {
+      cageState.sum += digit
+      cageState.usedMask |= bit
+      cageState.filled += 1
+    }
     givenCount += 1
   }
 
-  for (const cageState of cageStates) {
-    const remaining = cageState.size - cageState.filled
-    if (remaining === 0) {
-      if (cageState.sum !== cageState.target) {
-        throw new Error('Conflito nas pistas: um cage completo nao bate com a soma.')
+  if (hasCages) {
+    for (const cageState of cageStates) {
+      const remaining = cageState.size - cageState.filled
+      if (remaining === 0) {
+        if (cageState.sum !== cageState.target) {
+          throw new Error('Conflito nas pistas: um cage completo nao bate com a soma.')
+        }
+        continue
       }
-      continue
-    }
 
-    const availableDigits = maskToDigits(cageState.usedMask)
-    if (availableDigits.length < remaining) {
-      throw new Error('Conflito nas pistas: cage sem digitos suficientes para completar.')
-    }
-    const min = minPossibleSum(availableDigits, remaining)
-    const max = maxPossibleSum(availableDigits, remaining)
-    if (cageState.sum + min > cageState.target || cageState.sum + max < cageState.target) {
-      throw new Error('Conflito nas pistas: cage nao pode atingir a soma informada.')
+      const availableDigits = maskToDigits(cageState.usedMask)
+      if (availableDigits.length < remaining) {
+        throw new Error('Conflito nas pistas: cage sem digitos suficientes para completar.')
+      }
+      const min = minPossibleSum(availableDigits, remaining)
+      const max = maxPossibleSum(availableDigits, remaining)
+      if (cageState.sum + min > cageState.target || cageState.sum + max < cageState.target) {
+        throw new Error('Conflito nas pistas: cage nao pode atingir a soma informada.')
+      }
     }
   }
 
   function canPlaceInCage(cageState, digit) {
+    if (!hasCages) {
+      return true
+    }
+
     const bit = digitMask(digit)
     if ((cageState.usedMask & bit) !== 0) {
       return false
@@ -255,7 +266,7 @@ function solveKillerSudoku(cages, initialValues) {
   function candidatesForCell(cellIndex) {
     const { row, col } = indexToCoord(cellIndex)
     const usedMask = rows[row] | cols[col] | boxes[boxIndex(row, col)]
-    const cageState = cageStates[cellToCage[cellIndex]]
+    const cageState = hasCages ? cageStates[cellToCage[cellIndex]] : null
     const candidates = []
 
     for (let digit = 1; digit <= 9; digit += 1) {
@@ -312,8 +323,7 @@ function solveKillerSudoku(cages, initialValues) {
 
     const { row, col } = indexToCoord(cell)
     const box = boxIndex(row, col)
-    const cageIndex = cellToCage[cell]
-    const cageState = cageStates[cageIndex]
+    const cageState = hasCages ? cageStates[cellToCage[cell]] : null
 
     for (const digit of candidates) {
       const bit = digitMask(digit)
@@ -322,9 +332,11 @@ function solveKillerSudoku(cages, initialValues) {
       rows[row] |= bit
       cols[col] |= bit
       boxes[box] |= bit
-      cageState.sum += digit
-      cageState.usedMask |= bit
-      cageState.filled += 1
+      if (hasCages) {
+        cageState.sum += digit
+        cageState.usedMask |= bit
+        cageState.filled += 1
+      }
 
       if (search(filledCount + 1)) {
         return true
@@ -334,9 +346,11 @@ function solveKillerSudoku(cages, initialValues) {
       rows[row] &= ~bit
       cols[col] &= ~bit
       boxes[box] &= ~bit
-      cageState.sum -= digit
-      cageState.usedMask &= ~bit
-      cageState.filled -= 1
+      if (hasCages) {
+        cageState.sum -= digit
+        cageState.usedMask &= ~bit
+        cageState.filled -= 1
+      }
     }
 
     return false
@@ -495,7 +509,11 @@ function App() {
     try {
       const solved = solveKillerSudoku(cages, givenValues)
       if (!solved) {
-        setMessage('Nao foi encontrada solucao para os cages informados.')
+        setMessage(
+          cages.length > 0
+            ? 'Nao foi encontrada solucao para os cages/pistas informados.'
+            : 'Nao foi encontrada solucao para as pistas informadas.',
+        )
         setSolution(null)
         return
       }
@@ -551,7 +569,8 @@ function App() {
         <h1>Killer Sudoku Solver</h1>
         <p className="hint">
           Informe cada cage com celulas no formato <strong>1,1+1,2</strong> ou{' '}
-          <strong>1,1+1,2=9</strong>. Voce tambem pode digitar pistas direto no tabuleiro.
+          <strong>1,1+1,2=9</strong>. Voce tambem pode resolver com apenas pistas numericas,
+          ou combinar cages + pistas.
         </p>
 
         <div className="form">
